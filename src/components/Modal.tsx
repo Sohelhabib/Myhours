@@ -1,0 +1,58 @@
+import { useEffect, useRef, type ReactNode } from "react";
+import { X } from "lucide-react";
+export default function Modal({
+  title,
+  subtitle,
+  children,
+  onClose,
+  busy = false,
+  wide = false,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  onClose: () => void;
+  busy?: boolean;
+  wide?: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className={`modal ${wide ? "modal-wide" : ""}`}
+      aria-labelledby="modal-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !busy) onClose();
+      }}
+    >
+      <div className="modal-grip" aria-hidden="true" />
+      <header className="modal-head">
+        <div>
+          <h2 id="modal-title">{title}</h2>
+          {subtitle ? <p>{subtitle}</p> : null}
+        </div>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="Close dialog"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <X size={21} />
+        </button>
+      </header>
+      <div className="modal-body">{children}</div>
+    </dialog>
+  );
+}
