@@ -1,86 +1,53 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Archive,
-  ArrowDownToLine,
-  ArrowRight,
-  ArrowUpFromLine,
-  BriefcaseBusiness,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  CloudOff,
-  Download,
-  Ellipsis,
-  FileText,
-  History,
-  Home as HomeIcon,
-  Hourglass,
-  Info,
-  LoaderCircle,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Search,
-  Settings2,
-  Share2,
-  ShieldCheck,
-  Smartphone,
-  Sparkles,
-  Trash2,
-  Wallet,
-  WifiOff,
-  X,
+  Archive, ArrowDownToLine, ArrowRight, ArrowUpFromLine,
+  BriefcaseBusiness, CalendarDays, Check, ChevronRight,
+  Download, FileText, History, Home as HomeIcon, Hourglass,
+  LoaderCircle, MoreHorizontal, Pencil, Plus, Search,
+  Settings2, Share2, ShieldCheck, Smartphone, Sparkles,
+  Trash2, Wallet, WifiOff, X,
 } from "lucide-react";
+
 import {
-  validDate,
-  addDays,
-  backupJson,
-  csvReport,
-  dateLabel,
-  demoState,
-  getPeriod,
-  gross,
-  hoursLabel,
-  importBackup,
-  money,
-  reduceAction,
-  selectShifts,
-  summary,
-  today,
-  type Action,
-  type AppState,
-  type Change,
-  type Job,
-  type Period,
-  type Shift,
+  backupJson, csvReport, dateLabel, demoState, getPeriod,
+  hoursLabel, importBackup, money, reduceAction, selectShifts,
+  summary, today, validDate,
+  type Action, type AppState, type Change, type Job,
+  type Period, type Shift,
 } from "./lib/model.ts";
+
 import { useRecords } from "./lib/use-records.ts";
 import { usePwa } from "./lib/use-pwa.ts";
 import {
-  Creator,
-  Empty,
-  JobFilter,
-  JobMark,
-  ShiftCards,
-  WeekNav,
+  Creator, Empty, JobFilter, JobMark, ShiftCards, WeekNav,
 } from "./components/Common.tsx";
-import { JobForm, ProfileForm, ShiftForm } from "./components/Forms.tsx";
+import {
+  JobForm, ProfileForm, ShiftForm,
+} from "./components/Forms.tsx";
+
 import Home from "./components/Home.tsx";
 import Reports from "./components/Reports.tsx";
 import Modal from "./components/Modal.tsx";
 
 type Tab = "home" | "shifts" | "jobs" | "reports" | "settings";
+
 type ModalState =
   | { type: "job"; job?: Job }
-  | { type: "shift"; shift?: Shift; mode?: "start" | "complete"; date: string }
+  | {
+      type: "shift";
+      shift?: Shift;
+      mode?: "start" | "complete";
+      date: string;
+    }
   | { type: "delete"; shift: Shift }
   | { type: "install" }
   | { type: "restore"; data: AppState }
   | { type: "reset" }
   | { type: "change"; change: Change };
+
 type ReadyReport = {
+  name: string;
+  includePay: boolean;
   url: string;
   blob: Blob;
   filename: string;
@@ -89,6 +56,7 @@ type ReadyReport = {
   minutes: number;
   gross: number;
 };
+
 const navigation = [
   { id: "home", label: "Home", icon: HomeIcon },
   { id: "shifts", label: "Shifts", icon: CalendarDays },
@@ -96,104 +64,136 @@ const navigation = [
   { id: "reports", label: "Reports", icon: FileText },
   { id: "settings", label: "More", icon: MoreHorizontal },
 ] as const;
+
 function download(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob),
-    a = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
+
 let fontsPromise: Promise<[Uint8Array, Uint8Array]> | null = null;
+
 function reportFonts() {
   return (fontsPromise ||= Promise.all(
-    ["/fonts/DejaVuSans.ttf", "/fonts/DejaVuSans-Bold.ttf"].map(async (url) => {
+    [
+      "/fonts/DejaVuSans.ttf",
+      "/fonts/DejaVuSans-Bold.ttf",
+    ].map(async (url) => {
       const response = await fetch(url);
-      if (!response.ok)
+      if (!response.ok) {
         throw new Error(
-          "Report fonts are not cached yet. Open MyHours online once, then try again.",
+          "Open MyHours online once to cache the PDF fonts, then try again.",
         );
+      }
       return new Uint8Array(await response.arrayBuffer());
     }),
   ) as Promise<[Uint8Array, Uint8Array]>);
 }
 
 export default function App() {
-  const records = useRecords(),
-    pwa = usePwa();
-  const [preview, setPreview] = useState<AppState | null>(null),
-    state = preview || records.data,
-    day = today(state.settings.timeZone);
+  const records = useRecords();
+  const pwa = usePwa();
+
+  const [preview, setPreview] = useState<AppState | null>(null);
+  const state = preview || records.data;
+  const day = today(state.settings.timeZone);
+
   const [tab, setTab] = useState<Tab>(() =>
     new URLSearchParams(location.search).get("tab") === "reports"
       ? "reports"
       : "home",
   );
-  const [anchor, setAnchor] = useState(day),
-    [selectedDay, setSelectedDay] = useState(day),
-    [jobId, setJobId] = useState("all"),
-    [month, setMonth] = useState(day.slice(0, 7)),
-    [reportKind, setReportKind] = useState<Period["kind"]>("week");
-  const [shiftRange, setShiftRange] = useState<"week" | "month" | "all">(
-      "week",
-    ),
-    [search, setSearch] = useState(""),
-    [showArchived, setShowArchived] = useState(false);
-  const [modal, setModal] = useState<ModalState | null>(null),
-    [busy, setBusy] = useState(false),
-    [formError, setFormError] = useState(""),
-    [toast, setToast] = useState(""),
-    [undo, setUndo] = useState<Shift | null>(null),
-    [online, setOnline] = useState(navigator.onLine);
-  const [pdfBusy, setPdfBusy] = useState(false),
-    [ready, setReady] = useState<ReadyReport | null>(null),
-    [deleteWord, setDeleteWord] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null),
-    busyRef = useRef(false),
-    shortcutDone = useRef(false);
+
+  const [anchor, setAnchor] = useState(day);
+  const [selectedDay, setSelectedDay] = useState(day);
+  const [jobId, setJobId] = useState("all");
+  const [month, setMonth] = useState(day.slice(0, 7));
+  const [reportKind, setReportKind] = useState<Period["kind"]>("week");
+  const [shiftRange, setShiftRange] =
+    useState<"week" | "month" | "all">("week");
+  const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [modal, setModal] = useState<ModalState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [toast, setToast] = useState("");
+  const [undo, setUndo] = useState<Shift | null>(null);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [ready, setReady] = useState<ReadyReport | null>(null);
+  const [deleteWord, setDeleteWord] = useState("");
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const busyRef = useRef(false);
+  const shortcutDone = useRef(false);
+
   const filter =
-    jobId === "all" || state.jobs.some((j) => j.id === jobId) ? jobId : "all";
+    jobId === "all" || state.jobs.some((j) => j.id === jobId)
+      ? jobId
+      : "all";
+
   const weekly = getPeriod("week", anchor);
+  const close = () => setModal(null);
+
   const notify = (message: string) => {
     setUndo(null);
     setToast(message);
   };
+
   const open = (next: ModalState) => {
     setFormError("");
     setModal(next);
   };
+
   const navigate = (next: Tab) => {
     setTab(next);
     window.scrollTo({ top: 0, behavior: "instant" });
   };
+
   function changeWeek(date: string) {
     setAnchor(date);
     setSelectedDay(
-      date >= getPeriod("week", date).start &&
-        date <= getPeriod("week", date).end &&
-        date === day
-        ? day
-        : getPeriod("week", date).start,
+      date === day ? day : getPeriod("week", date).start,
     );
   }
+
   function addShift(mode: "start" | "complete" = "complete") {
-    if (!state.jobs.some((j) => !j.archived)) return open({ type: "job" });
+    if (!state.jobs.some((j) => !j.archived)) {
+      return open({ type: "job" });
+    }
     open({
       type: "shift",
       mode,
-      date: tab === "home" && mode === "complete" ? selectedDay : day,
+      date:
+        tab === "home" && mode === "complete"
+          ? selectedDay
+          : day,
     });
   }
+
   const editShift = (shift: Shift) =>
     open({ type: "shift", shift, date: shift.date });
-  async function mutate(action: Action, message: string): Promise<boolean> {
+
+  async function mutate(
+    action: Action,
+    message: string,
+  ): Promise<boolean> {
     if (busyRef.current) return false;
+
     busyRef.current = true;
     setBusy(true);
     setFormError("");
+
     try {
-      if (preview) setPreview(reduceAction(preview, action));
-      else await records.dispatch(action);
+      if (preview) {
+        setPreview(reduceAction(preview, action));
+      } else {
+        await records.dispatch(action);
+      }
+
       notify(message + (preview ? " · Sample preview only" : ""));
       return true;
     } catch (error) {
@@ -206,6 +206,7 @@ export default function App() {
       setBusy(false);
     }
   }
+
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => {
@@ -214,32 +215,45 @@ export default function App() {
     }, 6000);
     return () => clearTimeout(timer);
   }, [toast]);
+
   useEffect(() => {
-    const on = () => setOnline(true),
-      off = () => setOnline(false);
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
     window.addEventListener("online", on);
     window.addEventListener("offline", off);
+
     return () => {
       window.removeEventListener("online", on);
       window.removeEventListener("offline", off);
     };
   }, []);
+
   useEffect(() => {
-    if (!records.loading && !shortcutDone.current) {
-      shortcutDone.current = true;
-      if (new URLSearchParams(location.search).get("action") === "shift") {
-        if (state.jobs.some((j) => !j.archived))
-          setModal({ type: "shift", date: day });
-        else setModal({ type: "job" });
+    if (records.loading || shortcutDone.current) return;
+    shortcutDone.current = true;
+
+    if (
+      new URLSearchParams(location.search).get("action") === "shift"
+    ) {
+      if (state.jobs.some((j) => !j.archived)) {
+        setModal({ type: "shift", date: day });
+      } else {
+        setModal({ type: "job" });
       }
-      if (location.search) history.replaceState(null, "", location.pathname);
+    }
+
+    if (location.search) {
+      history.replaceState(null, "", location.pathname);
     }
   }, [records.loading, state.jobs, day]);
-  useEffect(() => {
-    return () => {
+
+  useEffect(
+    () => () => {
       if (ready) URL.revokeObjectURL(ready.url);
-    };
-  }, [ready]);
+    },
+    [ready],
+  );
+
   function startDemo() {
     setPreview(demoState(day));
     setAnchor(day);
@@ -248,40 +262,95 @@ export default function App() {
     navigate("home");
     notify("Exploring sample data. Your real records are unchanged.");
   }
+
   function exitDemo() {
     setPreview(null);
-    setJobId("all");
     setAnchor(day);
     setSelectedDay(day);
+    setJobId("all");
     navigate("home");
     notify("Back to your saved records.");
   }
-  async function makePdf(period: Period, shifts: Shift[]) {
-    if (pdfBusy) return;
-    setPdfBusy(true);
+
+  async function installApp() {
+    if (!pwa.canInstall || pwa.installed) {
+      return open({ type: "install" });
+    }
+
     try {
+      if (await pwa.install()) {
+        close();
+        notify("MyHours added to your Home Screen.");
+      }
+    } catch {
+      open({ type: "install" });
+    }
+  }
+
+  async function makePdf(
+    period: Period,
+    shifts: Shift[],
+    options: { name: string; includePay: boolean },
+  ) {
+    if (pdfBusy) return;
+
+    const name = options.name.trim();
+    if (!name || name.length > 80) {
+      return notify("Enter your name using 80 characters or fewer.");
+    }
+
+    setPdfBusy(true);
+
+    try {
+      const settings = { ...state.settings, displayName: name };
+
+      if (
+        name !== state.settings.displayName &&
+        !(await mutate(
+          { type: "settings/save", settings },
+          "Your report name is saved.",
+        ))
+      ) {
+        return;
+      }
+
       const [{ createTimesheetPdf }, fonts] = await Promise.all([
         import("./lib/pdf.ts"),
         reportFonts(),
       ]);
+
       const bytes = await createTimesheetPdf(
         {
-          state,
+          state: { ...state, settings },
           shifts,
           period,
-          jobName: `${preview ? "SAMPLE DATA / " : ""}${filter === "all" ? "All jobs" : state.jobs.find((j) => j.id === filter)?.name || "Job"}`,
+          includePay: options.includePay,
+          jobName: `${preview ? "SAMPLE DATA / " : ""}${
+            filter === "all"
+              ? "All jobs"
+              : state.jobs.find((j) => j.id === filter)?.name || "Job"
+          }`,
         },
         fonts[0],
         fonts[1],
       );
-      const blob = new Blob([bytes.slice().buffer as ArrayBuffer], {
-          type: "application/pdf",
-        }),
-        total = summary(shifts);
+
+      const blob = new Blob(
+        [bytes.slice().buffer as ArrayBuffer],
+        { type: "application/pdf" },
+      );
+      const total = summary(shifts);
+
       setReady({
+        name,
+        includePay: options.includePay,
         blob,
         url: URL.createObjectURL(blob),
-        filename: `MyHours-${preview ? "sample-" : ""}${period.kind}-${period.start}.pdf`,
+        filename: `MyHours-${preview ? "sample-" : ""}${
+          period.kind
+        }-${period.start}-${
+          options.includePay ? "hours-and-pay" : "hours-only"
+        }.pdf`,
         period,
         count: total.count,
         minutes: total.minutes,
@@ -297,13 +366,17 @@ export default function App() {
       setPdfBusy(false);
     }
   }
+
   function makeCsv(period: Period, shifts: Shift[]) {
     download(
-      new Blob([csvReport(state, shifts)], { type: "text/csv;charset=utf-8;" }),
+      new Blob([csvReport(state, shifts)], {
+        type: "text/csv;charset=utf-8;",
+      }),
       `MyHours-${preview ? "sample-" : ""}${period.kind}-${period.start}.csv`,
     );
     notify("Your CSV is ready to save.");
   }
+
   function backup() {
     download(
       new Blob([backupJson(state)], { type: "application/json" }),
@@ -311,13 +384,18 @@ export default function App() {
     );
     notify("Backup ready to save. Keep it somewhere safe.");
   }
+
   async function chooseBackup(file: File | undefined) {
     if (!file) return;
+
     try {
-      if (file.size > 10000000)
+      if (file.size > 10000000) {
         throw new Error("Choose a backup smaller than 10 MB.");
-      const data = importBackup(await file.text());
-      open({ type: "restore", data });
+      }
+      open({
+        type: "restore",
+        data: importBackup(await file.text()),
+      });
     } catch (error) {
       notify((error as Error).message);
     } finally {
@@ -332,14 +410,19 @@ export default function App() {
         (shiftRange === "month"
           ? s.date.startsWith(month)
           : s.date >= weekly.start && s.date <= weekly.end)) &&
-      `${s.date} ${s.note} ${state.jobs.find((j) => j.id === s.jobId)?.name || ""}`
+      `${s.date} ${s.note} ${
+        state.jobs.find((j) => j.id === s.jobId)?.name || ""
+      }`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const shiftDays = Array.from(new Set(shiftsForView.map((s) => s.date)))
-      .sort()
-      .reverse(),
-    shiftTotal = summary(shiftsForView);
+
+  const shiftDays = Array.from(
+    new Set(shiftsForView.map((s) => s.date)),
+  ).sort().reverse();
+
+  const shiftTotal = summary(shiftsForView);
+
   return (
     <div className="app-shell">
       <div className="ambient" aria-hidden="true">
@@ -347,14 +430,15 @@ export default function App() {
         <div className="ambient-lilac" />
         <div className="ambient-peach" />
       </div>
+
       <aside className="desktop-sidebar glass">
         <a className="brand" href="/" aria-label="MyHours home">
-          <span className="brand-mark">
-            <Hourglass size={24} />
-          </span>
+          <span className="brand-mark"><Hourglass size={24} /></span>
           MyHours<span className="brand-dot">.</span>
         </a>
+
         <span className="sidebar-caption">YOUR TIME, YOUR WAY</span>
+
         <nav aria-label="Main navigation">
           {navigation.map((n) => (
             <button
@@ -369,19 +453,14 @@ export default function App() {
             </button>
           ))}
         </nav>
+
         <div className="sidebar-bottom">
           <div className="sidebar-note">
             <Sparkles size={24} />
-            <h3>
-              A little less admin.
-              <br />A little more clarity.
-            </h3>
+            <h3>A little less admin.<br />A little more clarity.</h3>
             <p>Your jobs, hours and earnings, together in one place.</p>
           </div>
-          <button
-            className="install-side"
-            onClick={() => open({ type: "install" })}
-          >
+          <button className="install-side" onClick={installApp}>
             <Smartphone size={19} />
             <span>
               {pwa.installed
@@ -393,18 +472,16 @@ export default function App() {
           <Creator />
         </div>
       </aside>
+
       <div className="main-shell">
         <header className="mobile-header">
           <a className="brand" href="/">
-            <span className="brand-mark">
-              <Hourglass size={21} />
-            </span>
+            <span className="brand-mark"><Hourglass size={21} /></span>
             MyHours<span className="brand-dot">.</span>
           </a>
           <div>
             <span className="today-chip">
-              <i />
-              {dateLabel(day, { day: "numeric", month: "short" })}
+              <i />{dateLabel(day, { day: "numeric", month: "short" })}
             </span>
             <button
               className="icon-btn top-settings"
@@ -415,6 +492,7 @@ export default function App() {
             </button>
           </div>
         </header>
+
         <header className="desktop-header">
           <div>
             <span>My workspace</span>
@@ -431,12 +509,13 @@ export default function App() {
             <button
               className="icon-btn"
               aria-label="Installation options"
-              onClick={() => open({ type: "install" })}
+              onClick={installApp}
             >
               <Smartphone size={19} />
             </button>
           </span>
         </header>
+
         <main className="main-content">
           {records.loading ? (
             <div className="glass loading-card">
@@ -457,6 +536,7 @@ export default function App() {
                   </button>
                 </div>
               ) : null}
+
               {records.error && !preview ? (
                 <div className="error-banner" role="alert">
                   <span>{records.error}</span>
@@ -470,13 +550,15 @@ export default function App() {
                   </button>
                 </div>
               ) : null}
+
               {!online ? (
                 <div className="offline-note">
                   <WifiOff size={14} />
                   You’re offline. Your entries still save on this device.
                 </div>
               ) : null}
-              {pwa.needRefresh[0] && !modal ? (
+
+              {pwa.needRefresh[0] && !modal && !ready ? (
                 <div className="update-banner">
                   <span>A fresh version of MyHours is ready.</span>
                   <button
@@ -487,6 +569,7 @@ export default function App() {
                   </button>
                 </div>
               ) : null}
+
               {tab === "home" ? (
                 <Home
                   state={state}
@@ -508,57 +591,51 @@ export default function App() {
                   }}
                   onDemo={startDemo}
                   isDemo={Boolean(preview)}
+                  installed={pwa.installed}
+                  onInstall={installApp}
                 />
               ) : null}
+
               {tab === "shifts" ? (
                 <>
                   <div className="page-intro">
                     <div>
                       <span className="eyebrow">EVERY HOUR, ACCOUNTED FOR</span>
-                      <h1>
-                        Your shifts.<span> Your call.</span>
-                      </h1>
-                      <p>
-                        Add, edit or finish your shifts, whenever you need to.
-                      </p>
+                      <h1>Your shifts.<span> Your call.</span></h1>
+                      <p>Add, edit or finish your shifts, whenever you need to.</p>
                     </div>
                     <button
                       className="btn primary desktop-add"
                       onClick={() => addShift()}
                     >
-                      <Plus size={18} />
-                      Add a shift
+                      <Plus size={18} />Add a shift
                     </button>
                   </div>
+
                   <JobFilter
                     jobs={state.jobs}
                     value={filter}
                     onChange={setJobId}
                   />
+
                   <div className="glass shift-filters">
                     <div className="segmented">
-                      <button
-                        aria-pressed={shiftRange === "week"}
-                        className={shiftRange === "week" ? "selected" : ""}
-                        onClick={() => setShiftRange("week")}
-                      >
-                        Week
-                      </button>
-                      <button
-                        aria-pressed={shiftRange === "month"}
-                        className={shiftRange === "month" ? "selected" : ""}
-                        onClick={() => setShiftRange("month")}
-                      >
-                        Month
-                      </button>
-                      <button
-                        aria-pressed={shiftRange === "all"}
-                        className={shiftRange === "all" ? "selected" : ""}
-                        onClick={() => setShiftRange("all")}
-                      >
-                        All shifts
-                      </button>
+                      {(["week", "month", "all"] as const).map((range) => (
+                        <button
+                          key={range}
+                          aria-pressed={shiftRange === range}
+                          className={shiftRange === range ? "selected" : ""}
+                          onClick={() => setShiftRange(range)}
+                        >
+                          {range === "week"
+                            ? "Week"
+                            : range === "month"
+                              ? "Month"
+                              : "All shifts"}
+                        </button>
+                      ))}
                     </div>
+
                     {shiftRange === "week" ? (
                       <WeekNav
                         period={weekly}
@@ -570,15 +647,19 @@ export default function App() {
                         Filter month
                         <input
                           type="month"
+                          min="2000-01"
+                          max="2100-12"
                           aria-label="Shift month"
                           value={month}
                           onChange={(e) => {
-                            if (validDate(e.target.value + "-01"))
+                            if (validDate(e.target.value + "-01")) {
                               setMonth(e.target.value);
+                            }
                           }}
                         />
                       </label>
                     ) : null}
+
                     <div className="search-field">
                       <Search size={17} />
                       <input
@@ -589,6 +670,7 @@ export default function App() {
                       />
                     </div>
                   </div>
+
                   <div className="shift-summary-line">
                     <span>
                       {shiftTotal.count} completed shifts ·{" "}
@@ -598,19 +680,21 @@ export default function App() {
                       {money(shiftTotal.gross, state.settings.currency)}
                     </strong>
                   </div>
+
                   <button
                     className="btn primary mobile-full-add"
                     onClick={() => addShift()}
                   >
-                    <Plus size={18} />
-                    Add a shift
+                    <Plus size={18} />Add a shift
                   </button>
+
                   {shiftDays.length ? (
                     shiftDays.map((date) => {
                       const rows = shiftsForView
-                          .filter((s) => s.date === date)
-                          .sort((a, b) => a.start.localeCompare(b.start)),
-                        t = summary(rows);
+                        .filter((s) => s.date === date)
+                        .sort((a, b) => a.start.localeCompare(b.start));
+                      const total = summary(rows);
+
                       return (
                         <section className="shift-day-group" key={date}>
                           <div className="section-heading">
@@ -622,8 +706,8 @@ export default function App() {
                               })}
                             </h2>
                             <span>
-                              {hoursLabel(t.minutes)} ·{" "}
-                              {money(t.gross, state.settings.currency)}
+                              {hoursLabel(total.minutes)} ·{" "}
+                              {money(total.gross, state.settings.currency)}
                             </span>
                           </div>
                           <ShiftCards
@@ -669,26 +753,23 @@ export default function App() {
                   )}
                 </>
               ) : null}
+
               {tab === "jobs" ? (
                 <>
                   <div className="page-intro">
                     <div>
                       <span className="eyebrow">ONE JOB OR A FEW</span>
-                      <h1>
-                        Work, in<span> your colours.</span>
-                      </h1>
-                      <p>
-                        Different jobs. Different rates. One clearer picture.
-                      </p>
+                      <h1>Work, in<span> your colours.</span></h1>
+                      <p>Different jobs. Different rates. One clearer picture.</p>
                     </div>
                     <button
                       className="btn primary desktop-add"
                       onClick={() => open({ type: "job" })}
                     >
-                      <Plus size={18} />
-                      Add a job
+                      <Plus size={18} />Add a job
                     </button>
                   </div>
+
                   <div className="jobs-toolbar">
                     <div className="segmented">
                       <button
@@ -713,19 +794,23 @@ export default function App() {
                       className="btn primary small mobile-job-add"
                       onClick={() => open({ type: "job" })}
                     >
-                      <Plus size={17} />
-                      Add job
+                      <Plus size={17} />Add job
                     </button>
                   </div>
+
                   <div className="jobs-grid">
                     {state.jobs
                       .filter((j) => j.archived === showArchived)
                       .map((job) => {
-                        const jobShifts = selectShifts(state, weekly, job.id),
-                          total = summary(jobShifts);
+                        const total = summary(
+                          selectShifts(state, weekly, job.id),
+                        );
+
                         return (
                           <section
-                            className={`glass job-card ${job.archived ? "archived" : ""}`}
+                            className={`glass job-card ${
+                              job.archived ? "archived" : ""
+                            }`}
                             key={job.id}
                           >
                             <div className="job-card-head">
@@ -742,6 +827,7 @@ export default function App() {
                                 <Pencil size={18} />
                               </button>
                             </div>
+
                             <div className="job-rate">
                               <span>Default hourly rate</span>
                               <strong>
@@ -749,9 +835,11 @@ export default function App() {
                                 <small> / hour</small>
                               </strong>
                             </div>
+
                             <div className="job-period-label">
                               WEEK OF {dateLabel(weekly.start).toUpperCase()}
                             </div>
+
                             <div className="job-totals">
                               <div>
                                 <span>Paid time</span>
@@ -764,6 +852,7 @@ export default function App() {
                                 </strong>
                               </div>
                             </div>
+
                             <div className="job-card-bottom">
                               <span>
                                 {job.defaultBreak} min default unpaid break
@@ -782,8 +871,7 @@ export default function App() {
                                     )
                                   }
                                 >
-                                  <Archive size={14} />
-                                  Restore
+                                  <Archive size={14} />Restore
                                 </button>
                               ) : (
                                 <button
@@ -801,7 +889,10 @@ export default function App() {
                         );
                       })}
                   </div>
-                  {!state.jobs.some((j) => j.archived === showArchived) ? (
+
+                  {!state.jobs.some(
+                    (j) => j.archived === showArchived,
+                  ) ? (
                     <div className="glass">
                       <Empty
                         title={
@@ -821,23 +912,24 @@ export default function App() {
                               className="btn primary"
                               onClick={() => open({ type: "job" })}
                             >
-                              <Plus size={17} />
-                              Add your first job
+                              <Plus size={17} />Add your first job
                             </button>
                           ) : undefined
                         }
                       />
                     </div>
                   ) : null}
+
                   <div className="glass useful-note">
                     <ShieldCheck size={22} />
                     <p>
-                      Changing a job’s rate only changes the default for future
-                      entries. Each saved shift keeps its own hourly rate.
+                      Changing a job’s rate only changes the default for
+                      future entries. Each saved shift keeps its own hourly rate.
                     </p>
                   </div>
                 </>
               ) : null}
+
               {tab === "reports" ? (
                 <Reports
                   state={state}
@@ -857,17 +949,17 @@ export default function App() {
                   onCsv={makeCsv}
                 />
               ) : null}
+
               {tab === "settings" ? (
                 <>
                   <div className="page-intro">
                     <div>
                       <span className="eyebrow">MAKE YOURSELF AT HOME</span>
-                      <h1>
-                        The little<span> details.</span>
-                      </h1>
+                      <h1>The little<span> details.</span></h1>
                       <p>Your preferences, records and a little help.</p>
                     </div>
                   </div>
+
                   <div className="settings-grid">
                     <section className="glass settings-card">
                       <div className="section-heading">
@@ -887,44 +979,48 @@ export default function App() {
                         }}
                       />
                     </section>
+
                     <div className="settings-stack">
                       <section className="glass settings-card storage-card">
                         <ShieldCheck size={25} />
                         <h2>Your records stay with you.</h2>
                         <p>
-                          MyHours saves on this device, including offline. It
-                          doesn’t send your jobs or pay to an employer. This
-                          version has no cloud account or automatic cross-device
-                          sync.
+                          MyHours saves on this device, including offline.
+                          It doesn’t send your jobs or pay to an employer.
+                          This version has no cloud account or automatic
+                          cross-device sync.
                         </p>
                         <p>
                           Keep a backup before clearing browser data or changing
                           phones. Safari and Chrome can keep separate copies.
                         </p>
+
                         <div className="storage-actions">
                           <button
                             className="btn secondary small"
                             onClick={backup}
                           >
-                            <ArrowDownToLine size={16} />
-                            Back up records
+                            <ArrowDownToLine size={16} />Back up records
                           </button>
                           <button
                             className="btn secondary small"
                             onClick={() => fileRef.current?.click()}
                           >
-                            <ArrowUpFromLine size={16} />
-                            Restore backup
+                            <ArrowUpFromLine size={16} />Restore backup
                           </button>
                         </div>
+
                         <input
                           className="sr-only"
                           ref={fileRef}
                           type="file"
                           accept="application/json,.json"
                           aria-label="Choose MyHours backup"
-                          onChange={(e) => chooseBackup(e.target.files?.[0])}
+                          onChange={(e) =>
+                            chooseBackup(e.target.files?.[0])
+                          }
                         />
+
                         <button
                           className="text-button persist-button"
                           onClick={async () => {
@@ -943,12 +1039,14 @@ export default function App() {
                             }
                           }}
                         >
-                          Request persistent storage <ArrowRight size={13} />
+                          Request persistent storage
+                          <ArrowRight size={13} />
                         </button>
                       </section>
+
                       <button
                         className="glass install-card"
-                        onClick={() => open({ type: "install" })}
+                        onClick={installApp}
                       >
                         <span className="install-icon">
                           <Smartphone size={25} />
@@ -969,28 +1067,27 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+
                   <section className="glass history-card">
                     <div className="section-heading">
                       <div>
-                        <h2>
-                          <History size={18} />A clear edit history
-                        </h2>
+                        <h2><History size={18} />A clear edit history</h2>
                         <p>
-                          Original details stay available when you change an
-                          entry.
+                          Original details stay available when you change an entry.
                         </p>
                       </div>
                     </div>
+
                     {state.history.length ? (
                       <div className="history-list">
                         {state.history.slice(0, 25).map((change) => (
                           <button
                             key={change.id}
-                            onClick={() => open({ type: "change", change })}
+                            onClick={() =>
+                              open({ type: "change", change })
+                            }
                           >
-                            <span>
-                              <History size={15} />
-                            </span>
+                            <span><History size={15} /></span>
                             <div>
                               <strong>{change.label}</strong>
                               <small>
@@ -1007,26 +1104,25 @@ export default function App() {
                       </div>
                     ) : (
                       <p className="history-empty">
-                        Changes will appear here as you update your jobs and
-                        shifts.
+                        Changes will appear here as you update your jobs and shifts.
                       </p>
                     )}
                   </section>
+
                   <section className="glass about-card">
                     <div className="brand-mark">
                       <Hourglass size={24} />
                     </div>
                     <div>
-                      <h2>
-                        MyHours <span>1.0</span>
-                      </h2>
+                      <h2>MyHours <span>1.0</span></h2>
                       <p>
-                        Your time, clearly counted. Made for multiple jobs and
-                        real working days.
+                        Your time, clearly counted. Made for multiple jobs
+                        and real working days.
                       </p>
                       <Creator />
                     </div>
                   </section>
+
                   {!preview ? (
                     <div className="settings-danger">
                       <button
@@ -1036,17 +1132,16 @@ export default function App() {
                           open({ type: "reset" });
                         }}
                       >
-                        <Trash2 size={14} />
-                        Reset this device’s records
+                        <Trash2 size={14} />Reset this device’s records
                       </button>
                       <button className="text-button" onClick={startDemo}>
-                        <Sparkles size={14} />
-                        Explore sample data
+                        <Sparkles size={14} />Explore sample data
                       </button>
                     </div>
                   ) : null}
                 </>
               ) : null}
+
               <footer className="app-footer">
                 <span>
                   <Hourglass size={14} />A calmer way to keep time.
@@ -1057,6 +1152,7 @@ export default function App() {
           )}
         </main>
       </div>
+
       <nav className="bottom-nav" aria-label="Main navigation">
         {navigation.map((n) => (
           <button
@@ -1066,17 +1162,19 @@ export default function App() {
             onClick={() => navigate(n.id)}
           >
             <span>
-              <n.icon size={21} strokeWidth={tab === n.id ? 2 : 1.65} />
+              <n.icon
+                size={21}
+                strokeWidth={tab === n.id ? 2 : 1.65}
+              />
             </span>
             <small>{n.label}</small>
           </button>
         ))}
       </nav>
+
       {toast ? (
         <div className="toast" role="status">
-          <span>
-            <Check size={16} />
-          </span>
+          <span><Check size={16} /></span>
           <p>{toast}</p>
           {undo ? (
             <button
@@ -1086,8 +1184,9 @@ export default function App() {
                     { type: "shift/restore", shift: undo },
                     "Shift restored",
                   )
-                )
+                ) {
                   setUndo(null);
+                }
               }}
             >
               Undo
@@ -1102,15 +1201,17 @@ export default function App() {
           </button>
         </div>
       ) : null}
+
       {modal?.type === "job" ? (
         <JobForm
           job={modal.job}
           currency={state.settings.currency}
           busy={busy}
           error={formError}
-          onClose={() => setModal(null)}
+          onClose={close}
           canDelete={Boolean(
-            modal.job && !state.shifts.some((s) => s.jobId === modal.job!.id),
+            modal.job &&
+              !state.shifts.some((s) => s.jobId === modal.job!.id),
           )}
           onSave={async (input) => {
             if (
@@ -1121,7 +1222,7 @@ export default function App() {
                   : "Job added. You’re ready to log your hours.",
               )
             ) {
-              setModal(null);
+              close();
               if (!state.jobs.length) navigate("home");
             }
           }}
@@ -1139,8 +1240,9 @@ export default function App() {
                         ? "Job restored"
                         : "Job archived. Its shifts are still in your reports.",
                     )
-                  )
-                    setModal(null);
+                  ) {
+                    close();
+                  }
                 }
               : undefined
           }
@@ -1152,13 +1254,15 @@ export default function App() {
                       { type: "job/delete", id: modal.job!.id },
                       "Empty job deleted",
                     )
-                  )
-                    setModal(null);
+                  ) {
+                    close();
+                  }
                 }
               : undefined
           }
         />
       ) : null}
+
       {modal?.type === "shift" ? (
         <ShiftForm
           shift={modal.shift}
@@ -1169,7 +1273,7 @@ export default function App() {
           mode={modal.mode}
           busy={busy}
           error={formError}
-          onClose={() => setModal(null)}
+          onClose={close}
           onSave={async (input) => {
             if (
               await mutate(
@@ -1184,7 +1288,7 @@ export default function App() {
                   : "Shift saved. Your totals are up to date.",
               )
             ) {
-              setModal(null);
+              close();
               setAnchor(input.date);
               setSelectedDay(input.date);
               setMonth(input.date.slice(0, 7));
@@ -1192,27 +1296,33 @@ export default function App() {
           }}
         />
       ) : null}
+
       {modal?.type === "delete" ? (
         <Modal
           title="Remove this shift?"
-          subtitle={`${dateLabel(modal.shift.date, { weekday: "long", day: "numeric", month: "long" })} · ${state.jobs.find((j) => j.id === modal.shift.jobId)?.name}`}
           busy={busy}
-          onClose={() => setModal(null)}
+          onClose={close}
+          subtitle={`${dateLabel(modal.shift.date, {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })} · ${
+            state.jobs.find((j) => j.id === modal.shift.jobId)?.name
+          }`}
         >
           <p className="dialog-copy">
-            Your hours and pay will be recalculated. The original entry stays in
-            your edit history.
+            Your hours and pay will be recalculated.
+            The original entry stays in your edit history.
           </p>
           {formError ? (
-            <p className="form-error" role="alert">
-              {formError}
-            </p>
+            <p className="form-error" role="alert">{formError}</p>
           ) : null}
+
           <div className="modal-actions">
             <button
               className="btn secondary"
-              onClick={() => setModal(null)}
               disabled={busy}
+              onClick={close}
             >
               Keep shift
             </button>
@@ -1227,46 +1337,45 @@ export default function App() {
                     "Shift removed",
                   )
                 ) {
-                  setModal(null);
+                  close();
                   setUndo(removed);
                 }
               }}
             >
-              <Trash2 size={17} />
-              Remove shift
+              <Trash2 size={17} />Remove shift
             </button>
           </div>
         </Modal>
       ) : null}
+
       {modal?.type === "install" ? (
         <Modal
           title={
-            pwa.installed ? "Right at home." : "Your hours. In your pocket."
+            pwa.installed
+              ? "Right at home."
+              : "Your hours. In your pocket."
           }
           subtitle={
             pwa.installed
               ? "MyHours is installed on this device."
               : "Add MyHours to your Home Screen for an app-like experience."
           }
-          onClose={() => setModal(null)}
+          onClose={close}
         >
           <div className="install-guide">
             <div className="install-guide-icon">
               <Hourglass size={36} />
             </div>
+
             {pwa.canInstall ? (
               <button
                 className="btn primary full"
-                onClick={async () => {
-                  if (await pwa.install()) {
-                    setModal(null);
-                    notify("MyHours added to your Home Screen.");
-                  }
-                }}
+                onClick={installApp}
               >
                 Install MyHours <Download size={18} />
               </button>
             ) : null}
+
             <section>
               <h3>iPhone or iPad · Safari</h3>
               <ol>
@@ -1276,11 +1385,12 @@ export default function App() {
                   <strong>Add to Home Screen</strong>.
                 </li>
                 <li>
-                  Turn on <strong>Open as Web App</strong> if shown, then tap{" "}
-                  <strong>Add</strong>.
+                  Turn on <strong>Open as Web App</strong> if shown,
+                  then tap <strong>Add</strong>.
                 </li>
               </ol>
             </section>
+
             <section>
               <h3>Android · Chrome</h3>
               <ol>
@@ -1292,14 +1402,15 @@ export default function App() {
                 </li>
               </ol>
             </section>
+
             <p className="form-hint">
-              Open the deployed HTTPS address online once so the app and PDF
-              fonts can be saved for offline use. An install option may be
-              hidden if this browser already has the app installed.
+              Open the deployed HTTPS address online once so the app
+              and PDF fonts can be saved for offline use.
             </p>
           </div>
         </Modal>
       ) : null}
+
       {ready ? (
         <Modal
           title="Your timesheet is ready."
@@ -1307,22 +1418,27 @@ export default function App() {
           onClose={() => setReady(null)}
         >
           <div className="report-ready">
-            <span>
-              <FileText size={34} />
-            </span>
+            <span><FileText size={34} /></span>
             <h3>One PDF. All the details.</h3>
             <p>
-              {ready.count} shifts · {hoursLabel(ready.minutes)} paid ·{" "}
-              {money(ready.gross, state.settings.currency)} estimated gross
+              {ready.name}<br />
+              {ready.count} shifts · {hoursLabel(ready.minutes)} paid
+              {ready.includePay
+                ? ` · ${money(
+                    ready.gross,
+                    state.settings.currency,
+                  )} estimated gross`
+                : " · Hours only"}
             </p>
+
             <a
               className="btn primary full"
               href={ready.url}
               download={ready.filename}
             >
-              <ArrowDownToLine size={18} />
-              Download PDF
+              <ArrowDownToLine size={18} />Download PDF
             </a>
+
             {navigator.canShare &&
             navigator.canShare({
               files: [
@@ -1344,64 +1460,64 @@ export default function App() {
                       ],
                     });
                   } catch (error) {
-                    if ((error as Error).name !== "AbortError")
+                    if ((error as Error).name !== "AbortError") {
                       notify(
                         "Sharing is unavailable here. Use Download PDF instead.",
                       );
+                    }
                   }
                 }}
               >
-                <Share2 size={18} />
-                Share PDF
+                <Share2 size={18} />Share PDF
               </button>
             ) : null}
+
             <p className="form-hint">
-              On iPhone, you can save to Files or share the PDF from its
-              preview.
+              On iPhone, you can save to Files or share the PDF
+              from its preview.
             </p>
           </div>
         </Modal>
       ) : null}
+
       {modal?.type === "restore" ? (
         <Modal
           title="Bring your records back."
           subtitle="Review this backup before restoring it."
           busy={busy}
-          onClose={() => setModal(null)}
+          onClose={close}
         >
           <div className="restore-summary">
             <span>
-              <BriefcaseBusiness size={18} />
-              {modal.data.jobs.length} jobs
+              <BriefcaseBusiness size={18} />{modal.data.jobs.length} jobs
             </span>
             <span>
-              <CalendarDays size={18} />
-              {modal.data.shifts.length} shifts
+              <CalendarDays size={18} />{modal.data.shifts.length} shifts
             </span>
             <span>
-              <Wallet size={18} />
-              {modal.data.settings.currency}
+              <Wallet size={18} />{modal.data.settings.currency}
             </span>
           </div>
+
           <p className="dialog-copy">
-            Restoring replaces the records on this device. Download a backup of
-            your current records first if you want to keep them. Imported
-            backups start a fresh edit history.
+            Restoring replaces the records on this device.
+            Download a backup of your current records first if you
+            want to keep them. Imported backups start a fresh edit history.
           </p>
+
           <button className="text-button" onClick={backup}>
-            <ArrowDownToLine size={15} />
-            Back up current records first
+            <ArrowDownToLine size={15} />Back up current records first
           </button>
+
           {formError ? (
-            <p className="form-error" role="alert">
-              {formError}
-            </p>
+            <p className="form-error" role="alert">{formError}</p>
           ) : null}
+
           <div className="modal-actions">
             <button
               className="btn secondary"
               disabled={busy}
-              onClick={() => setModal(null)}
+              onClick={close}
             >
               Cancel
             </button>
@@ -1415,32 +1531,33 @@ export default function App() {
                     "Backup restored",
                   )
                 ) {
-                  setModal(null);
+                  close();
                   setJobId("all");
                   navigate("home");
                 }
               }}
             >
-              <ArrowUpFromLine size={17} />
-              Restore backup
+              <ArrowUpFromLine size={17} />Restore backup
             </button>
           </div>
         </Modal>
       ) : null}
+
       {modal?.type === "reset" ? (
         <Modal
           title="Start with a clean page?"
-          subtitle="This removes all jobs, shifts, preferences and history saved by MyHours on this device."
           busy={busy}
-          onClose={() => setModal(null)}
+          onClose={close}
+          subtitle="This removes all jobs, shifts, preferences and history saved by MyHours on this device."
         >
           <p className="dialog-copy">
             Download a backup first if you want to keep a copy of your records.
           </p>
+
           <button className="text-button" onClick={backup}>
-            <ArrowDownToLine size={15} />
-            Download a backup
+            <ArrowDownToLine size={15} />Download a backup
           </button>
+
           <label className="reset-label">
             Type DELETE to confirm
             <input
@@ -1450,16 +1567,16 @@ export default function App() {
               onChange={(e) => setDeleteWord(e.target.value)}
             />
           </label>
+
           {formError ? (
-            <p className="form-error" role="alert">
-              {formError}
-            </p>
+            <p className="form-error" role="alert">{formError}</p>
           ) : null}
+
           <div className="modal-actions">
             <button
               className="btn secondary"
-              onClick={() => setModal(null)}
               disabled={busy}
+              onClick={close}
             >
               Keep my records
             </button>
@@ -1473,7 +1590,7 @@ export default function App() {
                     "All local records reset",
                   )
                 ) {
-                  setModal(null);
+                  close();
                   setJobId("all");
                   navigate("home");
                 }
@@ -1484,12 +1601,13 @@ export default function App() {
           </div>
         </Modal>
       ) : null}
+
       {modal?.type === "change" ? (
         <Modal
           title="A clear record of the change."
           subtitle={modal.change.label}
           wide
-          onClose={() => setModal(null)}
+          onClose={close}
         >
           <div className="change-comparison">
             {[
@@ -1502,17 +1620,22 @@ export default function App() {
                   <ChangeDetails item={side.value} state={state} />
                 ) : (
                   <p className="muted">
-                    {side.label === "Before" ? "New record" : "Record removed"}
+                    {side.label === "Before"
+                      ? "New record"
+                      : "Record removed"}
                   </p>
                 )}
               </section>
             ))}
           </div>
+
           {modal.change.kind === "shift" &&
           modal.change.before &&
           "jobId" in modal.change.before &&
           !modal.change.after &&
-          !state.shifts.some((s) => s.id === modal.change.before!.id) ? (
+          !state.shifts.some(
+            (s) => s.id === modal.change.before!.id,
+          ) ? (
             <div className="modal-actions">
               <button
                 className="btn secondary"
@@ -1525,8 +1648,9 @@ export default function App() {
                       },
                       "Shift restored",
                     )
-                  )
-                    setModal(null);
+                  ) {
+                    close();
+                  }
                 }}
               >
                 Restore this shift
@@ -1549,7 +1673,10 @@ function ChangeDetails({
   const rows: [string, string][] =
     "jobId" in item
       ? [
-          ["Job", state.jobs.find((j) => j.id === item.jobId)?.name || "Job"],
+          [
+            "Job",
+            state.jobs.find((j) => j.id === item.jobId)?.name || "Job",
+          ],
           ["Date", item.date],
           ["Start", item.start],
           ["Finish", item.end || "In progress"],
@@ -1565,6 +1692,7 @@ function ChangeDetails({
           ["Default break", `${item.defaultBreak} min`],
           ["Archived", item.archived ? "Yes" : "No"],
         ];
+
   return (
     <dl>
       {rows.map(([key, value]) => (

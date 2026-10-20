@@ -4921,3 +4921,190 @@ textarea {
 :root .storage-actions {
   flex-wrap: wrap;
 }
+/* Report name and PDF choices */
+
+.report-options {
+  margin: 22px 0;
+}
+
+.report-options input:not([type="radio"]) {
+  font-size: 16px;
+}
+
+.pdf-format-options {
+  border: 0;
+  padding: 0;
+  margin: 5px 0 0;
+  min-width: 0;
+}
+
+.pdf-format-options legend {
+  font-size: 13px;
+  color: #3f5e45;
+  margin-bottom: 10px;
+}
+
+.pdf-format {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 9px;
+  border: 1px solid #cbdac7;
+  border-radius: 13px;
+  background: #ffffff66;
+  cursor: pointer;
+}
+
+.pdf-format.selected {
+  background: #e5eedfb3;
+  border-color: #6b906d;
+}
+
+.pdf-format input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  flex: 0 0 20px;
+  padding: 0;
+  accent-color: #345e46;
+}
+
+.pdf-format > span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pdf-format strong {
+  color: #34533e;
+  font-size: 13px;
+}
+
+.pdf-format small {
+  color: #59705b;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.pdf-format-options:disabled {
+  opacity: 0.6;
+}
+
+/* Live home clock and install button */
+
+.live-clock .glass-clock {
+  transform: none;
+  flex-shrink: 0;
+}
+
+.live-clock .hand-minute {
+  left: calc(50% - 1px);
+}
+
+.hand-second {
+  position: absolute;
+  left: calc(50% - 0.5px);
+  bottom: 50%;
+  width: 1px;
+  height: 44px;
+  border-radius: 2px;
+  background: #ae7862;
+  transform-origin: bottom center;
+}
+
+.live-clock-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.live-clock-readout time {
+  font-size: 22px;
+  font-weight: 600;
+  color: #34533e;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-clock-readout > span {
+  color: #61755d;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.welcome-clock.live-clock {
+  flex-direction: column;
+  gap: 12px;
+  height: 245px;
+}
+
+.home-install-button {
+  margin-bottom: 12px;
+}
+
+.home-utilities {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.home-utilities > .home-install-button {
+  margin: 0;
+  min-height: 48px;
+  white-space: normal;
+}
+
+.compact-clock {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 13px 18px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.compact-clock .glass-clock {
+  width: 80px;
+  height: 80px;
+}
+
+.compact-clock .clock-twelve {
+  top: 7px;
+  font-size: 8px;
+}
+
+.compact-clock .clock-six {
+  bottom: 6px;
+  font-size: 8px;
+}
+
+.compact-clock .hand-hour {
+  height: 18px;
+}
+
+.compact-clock .hand-minute {
+  height: 26px;
+}
+
+.compact-clock .hand-second {
+  height: 28px;
+}
+
+@media (max-width: 420px) {
+  .home-utilities {
+    gap: 10px;
+  }
+
+  .home-utilities > .home-install-button {
+    width: 100%;
+  }
+
+  .compact-clock {
+    width: 100%;
+  }
+}

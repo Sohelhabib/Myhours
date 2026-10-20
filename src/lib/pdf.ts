@@ -1,5 +1,11 @@
-import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  rgb,
+  type PDFFont,
+  type PDFPage,
+} from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+
 import {
   dateLabel,
   gross,
@@ -11,73 +17,102 @@ import {
   type Shift,
 } from "./model.ts";
 
-const W = 841.89,
-  H = 595.28,
-  M = 36;
-const palette = {
-  ink: rgb(0.16, 0.25, 0.21),
-  muted: rgb(0.39, 0.46, 0.41),
-  line: rgb(0.84, 0.88, 0.84),
-  pale: rgb(0.94, 0.97, 0.93),
-  accent: rgb(0.19, 0.36, 0.27),
-  paper: rgb(0.98, 0.985, 0.975),
-};
 export type ReportRequest = {
   state: AppState;
   shifts: Shift[];
   period: Period;
   jobName: string;
+  includePay?: boolean;
 };
+
 export async function createTimesheetPdf(
   request: ReportRequest,
   regularBytes: Uint8Array,
   boldBytes: Uint8Array,
 ): Promise<Uint8Array> {
-  const { state, period, jobName } = request,
-    shifts = request.shifts
-      .filter((s) => s.end !== null)
-      .sort(
-        (a, b) =>
-          a.date.localeCompare(b.date) || a.start.localeCompare(b.start),
-      );
-  const totals = summary(request.shifts),
-    currency = state.settings.currency;
+  const { state, period, jobName, includePay = true } = request;
+
+  const shifts = request.shifts
+    .filter((s) => s.end !== null)
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        a.start.localeCompare(b.start),
+    );
+
+  const total = summary(request.shifts);
+  const currency = state.settings.currency;
+  const name = state.settings.displayName.trim();
+
+  const W = 841.89;
+  const H = 595.28;
+  const M = 36;
+  const inner = W - M * 2;
+
+  const ink = rgb(.16, .25, .21);
+  const muted = rgb(.39, .46, .41);
+  const green = rgb(.19, .36, .27);
+  const pale = rgb(.94, .97, .93);
+  const rule = rgb(.84, .88, .84);
+  const white = rgb(1, 1, 1);
+
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const [regular, bold] = await Promise.all([
-    doc.embedFont(regularBytes, { subset: false }),
-    doc.embedFont(boldBytes, { subset: false }),
-  ]);
-  doc.setTitle(
-    `MyHours - ${period.kind === "week" ? "Weekly" : "Monthly"} timesheet - ${period.label}`,
+
+  const regular = await doc.embedFont(
+    regularBytes,
+    { subset: false },
   );
-  doc.setAuthor("Md Sohel Habib");
-  doc.setCreator("MyHours - created by Md Sohel Habib (@sohel_habib)");
-  doc.setSubject(`${jobName} - saved shift times and estimated gross earnings`);
-  const characterSets = new Map<PDFFont, Set<number>>([
+  const bold = await doc.embedFont(
+    boldBytes,
+    { subset: false },
+  );
+
+  doc.setTitle(
+    `MyHours - ${period.label} - ${
+      includePay ? "Hours and pay" : "Hours only"
+    }`,
+  );
+  doc.setAuthor(name || "MyHours user");
+  doc.setCreator("MyHours - Developed by Md Sohel Habib");
+  doc.setSubject(
+    `${jobName} - ${
+      includePay
+        ? "shift times and estimated gross pay"
+        : "shift times and paid hours"
+    }`,
+  );
+
+  const sets = new Map<PDFFont, Set<number>>([
     [regular, new Set(regular.getCharacterSet())],
     [bold, new Set(bold.getCharacterSet())],
   ]);
+
   const safe = (value: string, font = regular) =>
     Array.from(value)
       .map((c) => {
         const cp = c.codePointAt(0)!;
-        return cp < 32 ? " " : characterSets.get(font)!.has(cp) ? c : "?";
+        return cp < 32
+          ? " "
+          : sets.get(font)!.has(cp)
+            ? c
+            : "?";
       })
       .join("");
+
   function text(
-    page: PDFPage,
+    p: PDFPage,
     value: string,
     x: number,
     top: number,
     size = 9,
     strong = false,
-    color = palette.ink,
     right = false,
+    color = ink,
   ) {
-    const font = strong ? bold : regular,
-      str = safe(value, font);
-    page.drawText(str, {
+    const font = strong ? bold : regular;
+    const str = safe(value, font);
+    p.drawText(str, {
       x: right ? x - font.widthOfTextAtSize(str, size) : x,
       y: H - top - size,
       size,
@@ -85,126 +120,158 @@ export async function createTimesheetPdf(
       color,
     });
   }
-  function box(
-    page: PDFPage,
-    x: number,
-    top: number,
-    width: number,
-    height: number,
-    color = palette.pale,
-  ) {
-    page.drawRectangle({ x, y: H - top - height, width, height, color });
-  }
-  function line(page: PDFPage, top: number) {
-    page.drawLine({
-      start: { x: M, y: H - top },
-      end: { x: W - M, y: H - top },
-      thickness: 0.6,
-      color: palette.line,
-    });
-  }
+
   function wrap(
     value: string,
     width: number,
-    size = 8.5,
-    font = regular,
+    size = 9,
   ): string[] {
-    const words = safe(value, font).split(/\s+/),
-      lines: string[] = [];
+    const lines: string[] = [];
     let current = "";
-    for (const word of words) {
-      const candidate = current ? current + " " + word : word;
-      if (font.widthOfTextAtSize(candidate, size) <= width) {
+
+    for (const word of safe(value).split(/\s+/)) {
+      const candidate = current ? `${current} ${word}` : word;
+
+      if (regular.widthOfTextAtSize(candidate, size) <= width) {
         current = candidate;
         continue;
       }
-      if (current) {
-        lines.push(current);
-        current = "";
+
+      if (current) lines.push(current);
+      current = "";
+
+      for (const c of word) {
+        if (
+          current &&
+          regular.widthOfTextAtSize(current + c, size) > width
+        ) {
+          lines.push(current);
+          current = "";
+        }
+        current += c;
       }
-      let piece = "";
-      for (const char of word) {
-        if (piece && font.widthOfTextAtSize(piece + char, size) > width) {
-          lines.push(piece);
-          piece = char;
-        } else piece += char;
-      }
-      current = piece;
     }
+
     if (current || !lines.length) lines.push(current);
     return lines;
   }
-  let page = doc.addPage([W, H]),
-    y = 0;
-  const reportName = `${period.kind === "week" ? "Weekly" : "Monthly"} timesheet`;
-  function newPage(first = false) {
+
+  function box(
+    p: PDFPage,
+    top: number,
+    height: number,
+    color = pale,
+  ) {
+    p.drawRectangle({
+      x: M,
+      y: H - top - height,
+      width: inner,
+      height,
+      color,
+    });
+  }
+
+  function line(p: PDFPage, top: number) {
+    p.drawLine({
+      start: { x: M, y: H - top },
+      end: { x: W - M, y: H - top },
+      thickness: .6,
+      color: rule,
+    });
+  }
+
+  let page = doc.addPage([W, H]);
+  let y = 0;
+
+  function header(first = false) {
     if (!first) page = doc.addPage([W, H]);
-    text(page, "MyHours", M, 25, 19, true, palette.accent);
+
+    text(page, "MyHours", M, 25, 19, true, false, green);
     text(
       page,
-      reportName.toUpperCase(),
-      W - M,
-      29,
-      9,
-      true,
-      palette.muted,
-      true,
+      `${period.kind === "week" ? "WEEKLY" : "MONTHLY"} TIMESHEET`,
+      W - M, 29, 9, true, true, muted,
     );
+    text(
+      page, period.label, M,
+      first ? 65 : 59,
+      first ? 22 : 11,
+      first,
+    );
+
+    y = first ? 98 : 78;
+
+    for (const value of [
+      name ? `Name: ${name}` : "",
+      jobName,
+    ].filter(Boolean)) {
+      for (const row of wrap(value, inner, 10)) {
+        text(page, row, M, y, 10, false, false, muted);
+        y += 14;
+      }
+    }
+
+    y += 10;
+
     if (first) {
-      text(page, period.label, M, 65, 23, true);
-      const prepared = state.settings.displayName
-        ? `${state.settings.displayName}  |  ${jobName}`
-        : jobName;
-      text(page, prepared, M, 99, 10, false, palette.muted);
-      box(page, M, 125, W - M * 2, 57);
       const blocks = [
         {
-          label: "PAID TIME",
-          value: `${(totals.minutes / 60).toFixed(2)} hours`,
+          label: "PAID HOURS",
+          value: (total.minutes / 60).toFixed(2),
         },
-        { label: "ESTIMATED GROSS PAY", value: money(totals.gross, currency) },
-        { label: "COMPLETED SHIFTS", value: String(totals.count) },
-        { label: "UNPAID BREAKS", value: `${totals.breaks} minutes` },
+        ...(includePay
+          ? [{
+              label: "ESTIMATED GROSS PAY",
+              value: money(total.gross, currency),
+            }]
+          : []),
+        {
+          label: "COMPLETED SHIFTS",
+          value: String(total.count),
+        },
+        {
+          label: "UNPAID BREAKS",
+          value: `${total.breaks} minutes`,
+        },
       ];
+
+      box(page, y, 55);
+
       blocks.forEach((block, i) => {
-        const x = M + 16 + i * ((W - M * 2) / 4);
-        text(page, block.label, x, 136, 7.4, true, palette.muted);
-        text(page, block.value, x, 150, 15, true, palette.accent);
+        const x = M + 14 + i * inner / blocks.length;
+        text(
+          page, block.label, x, y + 10,
+          7.5, true, false, muted,
+        );
+        text(
+          page, block.value, x, y + 25,
+          15, true, false, green,
+        );
       });
-      y = 202;
-    } else {
-      text(
-        page,
-        `${period.label}  |  ${jobName}`,
-        M,
-        59,
-        10,
-        false,
-        palette.muted,
-      );
-      y = 88;
+
+      y += 73;
     }
-    return page;
   }
-  const widths = [82, 158, 50, 62, 55, 67, 95, 100],
-    columns = [
-      "Shift date",
-      "Job",
-      "Start",
-      "Finish",
-      "Break",
-      "Paid hours",
-      "Rate / hour",
-      "Gross pay",
-    ];
+
+  const widths = includePay
+    ? [88, 204, 54, 78, 62, 78, 95, inner - 659]
+    : [100, 290, 70, 95, 90, inner - 645];
+
+  const labels = [
+    "Shift date", "Job", "Start", "Finish", "Break", "Paid hours",
+    ...(includePay ? ["Rate / hour", "Gross pay"] : []),
+  ];
+
   const lefts: number[] = [];
   widths.reduce((x, width) => {
     lefts.push(x);
     return x + width;
   }, M);
+
   function tableHeader() {
-    box(page, M, y, W - M * 2, 26, palette.accent);
-    columns.forEach((label, i) =>
+    box(page, y, 26, green);
+
+    labels.forEach((label, i) =>
       text(
         page,
         label,
@@ -212,211 +279,213 @@ export async function createTimesheetPdf(
         y + 8,
         8,
         true,
-        rgb(1, 1, 1),
         i >= 5,
+        white,
       ),
     );
     y += 26;
   }
+
   function space(height: number, withTable = false) {
     if (y + height > H - 51) {
-      newPage();
+      header();
       if (withTable) tableHeader();
     }
   }
-  newPage(true);
+
+  header(true);
   tableHeader();
+
   if (!shifts.length) {
     text(
       page,
       "No completed shifts were recorded for this period.",
-      M + 12,
-      y + 18,
-      11,
-      false,
-      palette.muted,
+      M + 10,
+      y + 16,
     );
-    y += 57;
+    y += 45;
   }
+
   shifts.forEach((s, index) => {
-    const job = state.jobs.find((j) => j.id === s.jobId),
-      jobLines = wrap(job?.name || "Job", widths[1] - 18, 8.5);
-    const noteLines = s.note ? wrap(`Note: ${s.note}`, W - M * 2 - 24, 8) : [];
-    const rowHeight =
-      Math.max(30, jobLines.length * 11 + 16) +
-      (noteLines.length ? noteLines.length * 10 + 9 : 0);
-    space(rowHeight, true);
-    if (index % 2 === 0) box(page, M, y, W - M * 2, rowHeight, palette.paper);
+    const job = state.jobs.find((j) => j.id === s.jobId);
+    const names = wrap(job?.name || "Job", widths[1] - 18, 8.5);
+    const notes = s.note
+      ? wrap(`Note: ${s.note}`, inner - 24, 8)
+      : [];
+
+    const mainHeight = Math.max(30, names.length * 11 + 16);
+    const height =
+      mainHeight + (notes.length ? notes.length * 10 + 9 : 0);
+
+    space(height, true);
+
+    if (index % 2 === 0) {
+      box(page, y, height, rgb(.98, .985, .975));
+    }
+
     const values = [
-      dateLabel(s.date, { day: "2-digit", month: "short", year: "numeric" }),
+      dateLabel(s.date, {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
       "",
       s.start,
       `${s.end}${s.nextDay ? " (+1d)" : ""}`,
       `${s.unpaidBreak} min`,
       (paidMinutes(s) / 60).toFixed(2),
-      money(s.rate, currency),
-      money(gross(s), currency),
+      ...(includePay
+        ? [money(s.rate, currency), money(gross(s), currency)]
+        : []),
     ];
+
     values.forEach((value, i) => {
-      if (i !== 1)
+      if (i !== 1) {
         text(
           page,
           value,
           i >= 5 ? lefts[i] + widths[i] - 9 : lefts[i] + 9,
           y + 10,
-          i === 7 ? 9 : 8.3,
-          i === 7,
-          i === 7 ? palette.accent : palette.ink,
+          8.3,
+          includePay && i === 7,
           i >= 5,
         );
+      }
     });
-    jobLines.forEach((value, i) =>
-      text(page, value, lefts[1] + 9, y + 10 + i * 11, 8.5),
+
+    names.forEach((row, i) =>
+      text(page, row, lefts[1] + 9, y + 10 + i * 11, 8.5),
     );
-    const notesTop = y + Math.max(30, jobLines.length * 11 + 16) + 1;
-    noteLines.forEach((value, i) =>
-      text(page, value, M + 12, notesTop + i * 10, 8, false, palette.muted),
+    notes.forEach((row, i) =>
+      text(
+        page, row, M + 12,
+        y + mainHeight + 1 + i * 10,
+        8, false, false, muted,
+      ),
     );
-    y += rowHeight;
+
+    y += height;
     line(page, y);
   });
-  const byJob = state.jobs
+
+  const nameWidth = includePay ? 360 : 465;
+
+  const jobs = state.jobs
     .map((job) => ({
       job,
-      value: summary(shifts.filter((s) => s.jobId === job.id)),
+      total: summary(shifts.filter((s) => s.jobId === job.id)),
     }))
-    .filter((row) => row.value.count > 0);
+    .filter((row) => row.total.count);
+
   const summaryHeight =
     26 +
-    byJob.reduce(
+    jobs.reduce(
       (height, row) =>
-        height + Math.max(24, wrap(row.job.name, 380, 9).length * 12 + 8),
+        height +
+        Math.max(24, wrap(row.job.name, nameWidth).length * 12 + 8),
       0,
     ) +
-    9 +
-    47 +
-    45 +
-    (totals.open ? 15 : 0);
-  y += 22;
-  // Keep an ordinary job breakdown and its grand total together. Very large
-  // breakdowns may still continue across pages using the row checks below.
-  space(Math.min(summaryHeight, H - 51 - 88));
+    110;
+
+  y += 20;
+  space(Math.min(summaryHeight, 390));
   text(page, "Totals by job", M, y, 13, true);
   y += 26;
-  for (const row of byJob) {
-    const names = wrap(row.job.name, 380, 9),
-      rowHeight = Math.max(24, names.length * 12 + 8);
-    space(rowHeight);
-    names.forEach((name, i) => text(page, name, M, y + i * 12, 9));
+
+  for (const row of jobs) {
+    const names = wrap(row.job.name, nameWidth);
+    const height = Math.max(24, names.length * 12 + 8);
+    space(height);
+
+    names.forEach((value, i) =>
+      text(page, value, M, y + i * 12),
+    );
+
     text(
       page,
-      `${row.value.count} shift${row.value.count === 1 ? "" : "s"}`,
-      W - 310,
-      y,
-      9,
-      false,
-      palette.muted,
+      `${row.total.count} shifts`,
+      includePay ? W - 310 : W - 210,
+      y, 9, false, false, muted,
     );
+
     text(
       page,
-      `${(row.value.minutes / 60).toFixed(2)} h`,
-      W - 180,
-      y,
-      9,
-      false,
-      palette.muted,
-      true,
+      `${(row.total.minutes / 60).toFixed(2)} h`,
+      includePay ? W - 180 : W - M,
+      y, 9, false, true,
     );
-    text(
-      page,
-      money(row.value.gross, currency),
-      W - M,
-      y,
-      10,
-      true,
-      palette.accent,
-      true,
-    );
-    y += rowHeight;
+
+    if (includePay) {
+      text(
+        page,
+        money(row.total.gross, currency),
+        W - M, y, 10, true, true, green,
+      );
+    }
+
+    y += height;
   }
-  y += 9;
-  space(66);
-  box(page, M, y, W - M * 2, 35);
+
+  y += 8;
+  space(includePay ? 85 : 72);
+  box(page, y, 35);
+
   text(
     page,
-    "TOTAL ESTIMATED GROSS PAY",
-    M + 12,
-    y + 12,
-    9,
-    true,
-    palette.accent,
+    includePay ? "TOTAL ESTIMATED GROSS PAY" : "TOTAL PAID HOURS",
+    M + 12, y + 12, 9, true, false, green,
   );
+
   text(
     page,
-    money(totals.gross, currency),
-    W - M - 12,
-    y + 8,
-    15,
-    true,
-    palette.accent,
-    true,
+    includePay
+      ? money(total.gross, currency)
+      : `${(total.minutes / 60).toFixed(2)} hours`,
+    W - M - 12, y + 8, 15, true, true, green,
   );
+
   y += 47;
-  space(45);
-  text(
-    page,
-    "Gross estimates are before tax, National Insurance, pension and other deductions. No overtime premiums are applied automatically.",
-    M,
-    y,
-    8,
-    false,
-    palette.muted,
-  );
-  y += 13;
+
+  if (includePay) {
+    text(
+      page,
+      "Gross estimates are before tax and other deductions. Overtime premiums are not added automatically.",
+      M, y, 8, false, false, muted,
+    );
+    y += 13;
+  }
+
   text(
     page,
     `Times use ${state.settings.timeZone}. Overnight shifts belong to their start date. (+1d) means the following day.`,
-    M,
-    y,
-    8,
-    false,
-    palette.muted,
+    M, y, 8, false, false, muted,
   );
-  y += 13;
-  if (totals.open) {
+
+  if (total.open) {
+    y += 14;
     space(15);
     text(
       page,
-      `${totals.open} unfinished shift(s) are excluded from hours and pay.`,
-      M,
-      y,
-      8,
-      false,
-      palette.muted,
+      `${total.open} unfinished shift(s) are excluded from this report.`,
+      M, y, 8, false, false, muted,
     );
   }
+
   const pages = doc.getPages();
+
   pages.forEach((p, i) => {
     line(p, H - 34);
     text(
       p,
-      "Created by Md Sohel Habib | Instagram: @sohel_habib",
-      M,
-      H - 26,
-      7.5,
-      false,
-      palette.muted,
+      "Developed by Md Sohel Habib",
+      M, H - 26, 7.5, false, false, muted,
     );
     text(
       p,
       `${i + 1} / ${pages.length}`,
-      W - M,
-      H - 26,
-      7.5,
-      false,
-      palette.muted,
-      true,
+      W - M, H - 26, 7.5, false, true, muted,
     );
   });
+
   return doc.save();
 }

@@ -28,15 +28,8 @@ export function Creator() {
   return (
     <div className="creator">
       <span>
-        Created by <strong>Md Sohel Habib</strong>
+        Developed by <strong>Md Sohel Habib</strong>
       </span>
-      <a
-        href="https://www.instagram.com/sohel_habib/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        @sohel_habib <ArrowRight size={12} />
-      </a>
     </div>
   );
 }
